@@ -1,0 +1,55 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          myapp
+# Required-Start:    $remote_fs $syslog
+# Required-Stop:     $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Start myapp daemon at boot time
+# Description:       Enable service provided by myapp.
+### END INIT INFO
+
+# Используем переменные из Ansible
+APP_USER="{{ app_user }}"
+APP_ROOT_DIR="{{ app_root_dir }}"
+APP_ENV="{{ env_name }}"
+APP_PORT_VAR="{{ app_port }}"
+APP_IP_VAR="{{ primary_ip_address }}" # Добавили
+PIDFILE="/var/run/myapp.pid"
+LOGFILE="/var/log/myapp.log"
+
+# Путь к интерпретатору Python
+DAEMON=/usr/bin/python3
+DAEMON_ARGS="{{ app_root_dir }}/app.py"
+
+# Используем стандартную утилиту для управления демонами
+. /lib/lsb/init-functions
+
+case "$1" in
+  start)
+    log_daemon_msg "Starting myapp service" "myapp"
+    # Передаем переменную окружения и запускаем в фоне
+    start-stop-daemon --start --quiet --pidfile $PIDFILE --make-pidfile \
+      --chuid $APP_USER --background \
+      --startas /bin/bash -- -c "export APP_ENVIRONMENT=$APP_ENV; export APP_PORT=$APP_PORT_VAR; export APP_IP_ADDRESS=$APP_IP_VAR; exec $DAEMON $DAEMON_ARGS >> $LOGFILE 2>&1"
+    ;;
+  stop)
+    log_daemon_msg "Stopping myapp service" "myapp"
+    start-stop-daemon --stop --quiet --retry=TERM/30/KILL/5 --pidfile $PIDFILE
+    log_end_msg $?
+    rm -f $PIDFILE
+    ;;
+  status)
+    status_of_proc -p $PIDFILE "$DAEMON" "myapp" && exit 0 || exit $?
+    ;;
+  restart)
+    $0 stop
+    $0 start
+    ;;
+  *)
+    echo "Usage: /etc/init.d/myapp {start|stop|status|restart}"
+    exit 1
+    ;;
+esac
+
+

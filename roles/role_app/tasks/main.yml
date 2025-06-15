@@ -1,0 +1,164 @@
+---
+# tasks file for role_app
+
+# --- ВСТАВЬТЕ ЭТОТ БЛОК ВМЕСТО ПРЕДЫДУЩИХ ЗАДАЧ FACTS:* ---
+- name: "FACTS: Determine the primary IP address using a reliable method"
+  ansible.builtin.set_fact:
+    # Мы используем фильтр default(). Он пытается взять первое значение.
+    # Если оно не определено (None, пустая строка и т.д.), он берет второе.
+    primary_ip_address: "{{ ansible_facts.default_ipv4.address | default(fallback_ip) }}"
+  vars:
+    # Запасной вариант: ищем первый интерфейс (не 'lo'), у которого есть ipv4-адрес.
+    fallback_ip: "{{ (ansible_facts.interfaces | reject('equalto', 'lo') | map('extract', ansible_facts) | selectattr('ipv4', 'defined') | map(attribute='ipv4.address') | list | first | default('127.0.0.1')) }}"
+  tags:
+    - always
+
+- name: "FACTS: Display the discovered IP address"
+  ansible.builtin.debug:
+    msg: "Discovered primary IP address: {{ primary_ip_address }}"
+  tags:
+    - always
+
+- name: "DEMO: Using the custom 'to_slug' filter"
+  ansible.builtin.debug:
+    msg: "The slug for '{{ db_name }}' is: {{ db_name | to_slug }}"
+  tags:
+    - demo
+
+- name: Install Python dependencies
+  ansible.builtin.apt:
+    name:
+      - python3-pip
+      - python3-flask
+      - python3-pymysql # изменение
+    state: present
+  become: yes
+  tags:
+    - install # Тег для установки пакетов
+
+- name: Create application user
+  ansible.builtin.user:
+    name: "{{ app_user }}"
+    shell: /bin/bash
+    create_home: yes
+  become: yes
+  tags:
+    - config # Тег для задач конфигурации среды
+
+- name: Create application directory
+  ansible.builtin.file:
+    path: "{{ app_root_dir }}"
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0755'
+  become: yes
+  tags:
+    - config
+
+- name: Create log file and set permissions
+  ansible.builtin.file:
+    path: /var/log/myapp.log
+    state: touch
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0644'
+  become: yes
+  tags:
+    - config # Создание лог-файла - тоже конфигурация
+
+- name: "DEPENDENCY: Wait for the database to be available"
+  ansible.builtin.wait_for:
+    host: "{{ db_host }}"
+    port: 3306
+    delay: 5
+    timeout: 60
+    state: started
+  tags:
+    - deploy # Тег для задач развертывания приложения
+
+- name: "MIGRATION: Run initial database migration (first deploy only)"
+  ansible.builtin.command:
+    cmd: "echo 'Applying initial migrations for {{ db_name }}' > /opt/myapp/migration.log"
+  args:
+    creates: "/opt/myapp/.migration_done"
+  become: yes
+  become_user: "{{ app_user }}"
+  notify: Restart myapp service
+  tags:
+    - deploy
+
+- name: "MIGRATION: Create a flag file to prevent re-running migrations"
+  ansible.builtin.file:
+    path: "/opt/myapp/.migration_done"
+    state: touch
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0600'
+  become: yes
+  tags:
+    - deploy
+
+- name: Copy application code
+  ansible.builtin.copy:
+    src: app_code/
+    dest: "{{ app_root_dir }}"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+  become: yes
+  notify: Restart myapp service
+  tags:
+    - deploy
+
+- name: Create application config file from template (for demonstration)
+  ansible.builtin.template:
+    src: app_config.ini.j2
+    dest: "{{ app_root_dir }}/config.ini"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: '0600'
+  become: yes
+  tags:
+    - config # Демонстрация с Vault - часть конфигурации
+
+- name: Read config file content to prove decryption worked
+  ansible.builtin.command: "cat {{ app_root_dir }}/config.ini"
+  register: config_file_content
+  become: yes
+  tags:
+    - config
+
+- name: Display the decrypted content (for demonstration)
+  ansible.builtin.debug:
+    var: config_file_content.stdout
+  tags:
+    - config
+
+- name: Remove sensitive config file for security
+  ansible.builtin.file:
+    path: "{{ app_root_dir }}/config.ini"
+    state: absent
+  become: yes
+  tags:
+    - config
+
+- name: Create init.d script from template
+  ansible.builtin.template:
+    src: myapp.init.j2
+    dest: /etc/init.d/myapp
+    owner: root
+    group: root
+    mode: '0755'
+  become: yes
+  notify: Restart myapp service
+  tags:
+    - config
+
+- name: Enable and start myapp service
+  ansible.builtin.service:
+    name: myapp
+    enabled: yes
+    state: started
+  become: yes
+  tags:
+    - config

@@ -1,0 +1,10 @@
+---
+# handlers file for role_app
+- name: Restart myapp service
+  ansible.builtin.service: 
+    name: myapp
+    state: restarted
+  become: yes
+  tags:
+    - restart
+

@@ -1,0 +1,19 @@
+---
+# Play 1: Настраиваем серверы баз данных
+- name: Configure Database Servers
+  hosts: staging_dbservers, prod_dbservers
+  roles:
+    - role_db
+
+# Play 2: Настраиваем веб-серверы и приложения
+- name: Configure Web and App Servers
+  hosts: staging_webservers, prod_webservers
+  roles:
+    - role_web
+    - role_app
+  # Используем flush_handlers, чтобы принудительно выполнить
+  # все накопившиеся уведомления (например, перезапуск myapp)
+  # перед завершением этого play.
+  post_tasks:
+    - name: Flush handlers
+      ansible.builtin.meta: flush_handlers
