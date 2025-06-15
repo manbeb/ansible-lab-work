@@ -1,0 +1,53 @@
+# Название CI/CD процесса
+name: Deploy Infrastructure with Ansible
+
+# Запускать при каждом push в ветку 'main'
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  # ЗАДАЧА №1: АВТОМАТИЧЕСКОЕ РАЗВЕРТЫВАНИЕ В STAGING
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+
+    steps:
+      # Шаг 1: Клонирование репозитория
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Шаг 2: Создание файла с паролем от Vault из секрета GitHub
+      # Это безопасный способ, так как пароль не отображается в логах
+      - name: Create Vault Password File
+        run: echo "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > .vault_pass.txt
+
+      # Шаг 3: Запуск плейбука для окружения staging
+      # В реальном проекте здесь также была бы настройка SSH-ключа
+      - name: Run Ansible Playbook for Staging
+        run: |
+          ansible-playbook playbooks/site.yml --limit staging --vault-password-file .vault_pass.txt
+
+  # ЗАДАЧА №2: РУЧНОЕ РАЗВЕРТЫВАНИЕ В PRODUCTION
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    # Зависимость: запускать только после успеха 'deploy-staging'
+    needs: deploy-staging 
+    
+    # Настройка окружения с требованием ручного подтверждения
+    environment:
+      name: production
+      url: 'http://myapp.com' # Информационная ссылка на прод
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Create Vault Password File
+        run: echo "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > .vault_pass.txt
+
+      - name: Run Ansible Playbook for Production
+        run: |
+          ansible-playbook playbooks/site.yml --limit production --vault-password-file .vault_pass.txt
